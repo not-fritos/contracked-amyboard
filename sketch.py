@@ -1,12 +1,20 @@
 # AMYboard Sketch
 # Code put here runs first, then loop() is called every 32nd note.
+# https://www.amyboard.com/editor/
 import amyboard, amy
 import random
 
+MAX_BRIGHTNESS = 255
+MAX_HEIGHT = 127
+MAX_HISTORY = 128
 foo = 0
 amyboard.display.fill(0)
 amyboard.display.show()
 #amyboard.show_midi_ccs(ticks_to_display=60)
+
+# Note waveform storage (128 samples for display)
+note_history = [0] * MAX_HISTORY
+history_index = 0
 
 def random_note(low=40,high=62,modifier=4):
     x = random.randint(low,high)
@@ -16,19 +24,52 @@ def random_note(low=40,high=62,modifier=4):
 def cv_to_patch(cvv):
     return int(((10.0+cvv)/20.0)*256)
 
+def loop_y_value(y, min_val=0, max_val=MAX_HEIGHT):
+    if y > max_val:
+        return min_val + (y - max_val - 1) % (max_val - min_val + 1)
+    elif y < min_val:
+        return max_val - (min_val - y - 1) % (max_val - min_val + 1)
+    return y
+
 amy.send(synth=1, patch=10, num_voices=4)
 
+def display_waveform(channel=0, step=1):
+    for i in range(128):
+        y = int(amyboard.cv_in(channel=channel) * 64 + 64)
+        y = loop_y_value(y, 0, 127)
+        amyboard.display.pixel(i*step, y, 255)
+    amyboard.display.refresh()
+
 def loop():
-    global foo
+    global foo, history_index
     cv1 = round(amyboard.cv_in(channel=0),2)
     cv2 = round(amyboard.cv_in(channel=1),2)
-    note = int(cv2 + 40) #random_note()
+    note = int(cv2 + random_note()) #random_note()
     patch_number = cv_to_patch(cv1)
+    
+    # Store note in history buffer
+    note_history[history_index] = note
+    history_index = (history_index + 1) % 128
+
     amyboard.display.fill(0)
-    amyboard.display.text(f"synth: {patch_number}",10,10,255)
-    amyboard.display.text(f" note: {note}",10,20,255)
-    amyboard.display.text(f"  cv1: {cv1}",10,30,255)
-    amyboard.display.text(f"  cv2: {cv2}",10,40,255)
+    amyboard.display.text(f"synth: {patch_number}",10,10,MAX_BRIGHTNESS)
+    amyboard.display.text(f" note: {note}",10,20,MAX_BRIGHTNESS)
+    amyboard.display.text(f"  cv1: {cv1}",10,30,MAX_BRIGHTNESS)
+    amyboard.display.text(f"  cv2: {cv2}",10,40,MAX_BRIGHTNESS)
+    
+    # Display CV waveform channel 0 (top section)
+    display_waveform(channel=0, step=2)
+    
+    # Display CV waveform channel 1 (middle section)
+    display_waveform(channel=1, step=3)
+    
+    # Display note waveform over time (bottom section)
+    for i in range(MAX_HISTORY):
+        hist_note = note_history[(history_index + i) % MAX_HISTORY]
+        y = int((hist_note - 20) * 2)  # Scale note to display height
+        y_pos = loop_y_value(60 + y, 0, MAX_HEIGHT)
+        amyboard.display.pixel(i, y_pos, MAX_BRIGHTNESS)
+    
     amyboard.display.refresh()
     foo = foo + 1
     if 0 == foo % (2 * random.randint(1,4)):
